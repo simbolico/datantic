@@ -1,6 +1,6 @@
 [project]
 name = "datantic"
-version = "0.0.2"
+version = "0.0.3"
 description = "Seamlessly integrates Pydantic and Pandera, combining the expressiveness of Pydantic models with the efficiency of Pandera's DataFrame checks."
 authors = [{ name = "Kevin Saltarelli", email = "kevinqz@gmail.com" }]
 requires-python = ">=3.11"
