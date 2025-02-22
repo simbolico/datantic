@@ -160,3 +160,11 @@ cython_debug/
 #.idea/
 
 .specstory
+.pytest_cache
+.git
+.config
+.pythonlibs
+.upm
+# .replit
+# replit.nix
+generated-icon.png

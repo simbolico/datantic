@@ -1,7 +1,7 @@
 [project]
-name = "python-template"
-version = "0.1.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
+name = "datantic"
+version = "0.0.1"
+description = "Seamlessly integrates Pydantic and Pandera, combining the expressiveness of Pydantic models with the efficiency of Pandera's DataFrame checks."
+authors = [{ name = "Kevin Saltarelli", email = "kevinqz@gmail.com" }]
 requires-python = ">=3.11"
 dependencies = []
