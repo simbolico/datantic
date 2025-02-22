@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from src.datantic.model import DataFrameModel
 from src.datantic.validator import Validator
-from src.datantic.nesting import get_model_columns, serialize_dataframe, get_root_list, to_nested_pydantic  # Import
+from src.datantic.nesting import get_model_columns, serialize_dataframe, to_nested_pydantic
 from src.datantic.types import ErrorHandler
 
 

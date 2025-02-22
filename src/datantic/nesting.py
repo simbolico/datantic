@@ -3,7 +3,7 @@ import logging
 import inspect
 from typing import Type, Optional, List, Dict, Any, Union, get_origin, get_args
 
-from pydantic import BaseModel, RootModel, ValidationError
+from pydantic import BaseModel, ValidationError
 import pandera as pa
 from pandera.errors import SchemaErrors
 
@@ -108,10 +108,6 @@ def serialize_dataframe(data: Any, cols: ModelColumns, model: Type[BaseModel]) -
     
     return result
 
-def get_root_list(data: List[Dict[str, Any]], model: Type[BaseModel]) -> RootModel:
-    RootList = RootModel[List[model]] # type: ignore
-    root = RootList(root=data) # type: ignore
-    return root
 
 def to_nested_pydantic(data: Any, model: Type[BaseModel], id_map: Dict[str, str]) -> List[BaseModel]:
     """
