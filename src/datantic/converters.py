@@ -30,8 +30,10 @@ def to_pandas(polars_df: Any) -> Any: # Any to avoid circular import, but should
     try:
         import pandas as pd
         import polars as pl
+        if isinstance(polars_df, pd.DataFrame):
+            return polars_df
         if not isinstance(polars_df, pl.DataFrame):
-            raise TypeError(f"Expected Polars DataFrame, got {type(polars_df)}")
+            raise TypeError(f"Expected Polars or Pandas DataFrame, got {type(polars_df)}")
         return polars_df.to_pandas()
     except ImportError as e:
         if "pandas" in str(e):
@@ -44,4 +46,4 @@ def to_pandas(polars_df: Any) -> Any: # Any to avoid circular import, but should
         else:
             raise RuntimeError(f"Import error during conversion: {e}") from e
     except Exception as e:
-      raise RuntimeError(f"Error during conversion: {e}") from e
+        raise RuntimeError(f"Error during conversion: {e}") from e

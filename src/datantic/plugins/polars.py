@@ -1,14 +1,16 @@
-# src/datantic/plugins/polars_plugin.py
+# src/datantic/plugins/polars.py
 import logging
-from typing import Any, Iterable, Hashable, Optional, Tuple, Type, Union, List
+from typing import Any, Iterable, Hashable, Optional, Tuple, Type, Union, List, Dict, Literal
 
-import pandera as pa  # We import pandera
+import pandera as pa
 from pydantic import BaseModel, ValidationError
+import pandas as pd
+import polars as pl
 
-# We DO NOT import polars at the top level.
-from datantic.types import is_polars_dataframe
-from datantic.model import DataFrameModel
-from datantic.validator import Validator
+from src.datantic.types import is_polars_dataframe, ErrorHandler
+from src.datantic.model import DataFrameModel
+from src.datantic.validator import Validator
+from src.datantic.nesting import get_model_columns, serialize_dataframe, get_root_list, to_nested_pydantic  # Import
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +18,7 @@ logger = logging.getLogger(__name__)
 class PolarsDataFrameAccessor:
     """Polars DataFrame accessor for datantic validation."""
 
-    def __init__(self, polars_obj: Any):  # Accept Any
-        # Delay the Polars import and type check until __init__
+    def __init__(self, polars_obj: Any):
         if not is_polars_dataframe(polars_obj):
             raise TypeError("`polars_obj` must be a Polars DataFrame")
         self._obj = polars_obj
@@ -32,23 +33,26 @@ class PolarsDataFrameAccessor:
         random_state: Optional[int] = None,
         lazy: bool = False,
         inplace: bool = False,
-        **kwargs: Any,
-    ) -> Any:  # Return Any
-        """Validate the Polars DataFrame and return the validated DataFrame."""
+        errors: Literal["raise", "log"] = "raise",
+        error_handler: Optional[ErrorHandler] = None,
+    ) -> pl.DataFrame:
+        """Validates the DataFrame against a schema."""
         validator = Validator(schema)
-        # Always raise exceptions in the accessor
-        validated_df = validator.validate(
-            self._obj,  # Pass Polars DataFrame directly
+        result = validator.validate(
+            self._obj,
             head=head,
             tail=tail,
             sample=sample,
             random_state=random_state,
             lazy=lazy,
             inplace=inplace,
-            errors="raise",
-            **kwargs,
+            errors=errors,
+            error_handler=error_handler,
         )
-        return validated_df
+        # Convert back to Polars if needed
+        if isinstance(result, pd.DataFrame):
+            return pl.from_pandas(result)
+        return result
 
     def is_valid(
         self,
@@ -64,7 +68,6 @@ class PolarsDataFrameAccessor:
     ) -> bool:
         """Check if the Polars DataFrame is valid without raising."""
         try:
-            # Pass all arguments to validate
             self.validate(
                 schema,
                 head=head,
@@ -98,13 +101,13 @@ class PolarsDataFrameAccessor:
         schema: Union[Type[BaseModel], Type[pa.DataFrameSchema], Type[DataFrameModel]],
         verbose: bool = True,
         **kwargs: Any,
-    ) -> Iterable[Tuple[Hashable, Any]]:  # Return Any Series
+    ) -> Iterable[Tuple[Hashable, Any]]:
         """Iterates over valid rows of a Polars DataFrame, yielding (index, Series)."""
-        import polars as pl  # Local import
+        import polars as pl
 
         validator = Validator(schema)
         for i, row_data in validator.iterate(self._obj, verbose=verbose, **kwargs):
-            yield i, pl.Series(name=str(i), values=list(row_data.values()))  # Convert to Polars Series
+            yield i, pl.Series(name=str(i), values=list(row_data.values()))
 
     def iterschemas(
         self,
@@ -114,7 +117,6 @@ class PolarsDataFrameAccessor:
     ) -> Iterable[Tuple[Hashable, Union[dict, BaseModel]]]:
         """Iterates, yielding (index, schema_instance) tuples."""
         validator = Validator(schema)
-        # Cannot use validator.iterate with polars directly if it is a BaseModel
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             for i, row in enumerate(self._obj.to_dicts()):
                 try:
@@ -124,7 +126,7 @@ class PolarsDataFrameAccessor:
                     if verbose:
                         logger.info(f"Validation error at index {i}, skipping: {e}.")
                     continue
-        else:  # Use validator.iterate if it's a DataFrameModel or DataFrameSchema
+        else:
             yield from validator.iterate(self._obj, verbose=verbose, **kwargs)
 
     def to_pydantic(self, model_class: Type[BaseModel]) -> List[BaseModel]:
@@ -133,5 +135,76 @@ class PolarsDataFrameAccessor:
             raise TypeError(
                 "The `to_pydantic` method expects a Pydantic BaseModel class."
             )
-        self.validate(model_class)  # Validate, raising exceptions
-        return [model_class(**row) for row in self._obj.to_dicts()]  # Use to_dicts()
+        self.validate(model_class)
+        return [model_class(**row) for row in self._obj.to_dicts()]
+
+    def to_nested_pydantic(
+        self,
+        model: Type[BaseModel],
+        id_map: Dict[str, str],
+        validate: bool = False,
+        **kwargs,
+    ) -> List[BaseModel]:
+        """Convert a DataFrame to a list of nested Pydantic models.
+
+        Args:
+            model: The Pydantic model class to convert to.
+            id_map: A dictionary mapping model names to their ID columns.
+            validate: Whether to validate the data against the model.
+            **kwargs: Additional arguments to pass to the validator.
+
+        Returns:
+            A list of nested Pydantic models.
+        """
+        if not issubclass(model, BaseModel):
+            raise TypeError("The `model` argument must be a Pydantic BaseModel class.")
+
+        # Check if any field types are not BaseModel
+        for field_name, field_info in model.model_fields.items():
+            field_type = field_info.annotation
+            if hasattr(field_type, "__origin__") and field_type.__origin__ == list:
+                inner_type = field_type.__args__[0]
+                if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+                    # If it's a list of BaseModels, check that the inner type is also a BaseModel
+                    if not issubclass(inner_type, BaseModel):
+                        raise TypeError("All nested BaseModel types must be Pydantic BaseModel classes.")
+            elif isinstance(field_type, type) and not issubclass(field_type, (BaseModel, str, int, float, bool)):
+                raise TypeError("All field types must be Pydantic BaseModel classes or primitive types.")
+
+        # First convert to nested structure
+        result = to_nested_pydantic(self._obj, model, id_map)
+
+        # Then validate if requested
+        if validate:
+            try:
+                validator = Validator(model)
+                # Convert back to DataFrame for validation
+                df = pd.DataFrame([item.model_dump() for item in result])
+                validator.validate(df)
+            except ValidationError as e:
+                # Convert to Pandera error
+                errors = []
+                for err in e.errors():
+                    # Create a schema for the error
+                    error_schema = pa.DataFrameSchema(name=err["loc"][0] if err["loc"] else "validation")
+                    errors.append(
+                        pa.errors.SchemaError(
+                            schema=error_schema,
+                            data=self._obj,
+                            message=err["msg"],
+                            check=None,
+                            check_output=None,
+                            reason_code=pa.errors.SchemaErrorReason.WRONG_DATATYPE,
+                            column_name=err["loc"][0] if err["loc"] else None,
+                            failure_cases=pd.DataFrame({
+                                "column": [err["loc"][0]],
+                                "failure_case": [err["input"]],
+                                "index": [0]
+                            })
+                        )
+                    )
+                if len(errors) == 1:
+                    raise errors[0]
+                raise pa.errors.SchemaErrors(schema=pa.DataFrameSchema(), schema_errors=errors, data=self._obj)
+
+        return result

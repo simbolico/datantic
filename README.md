@@ -1,33 +1,33 @@
-# datantic: Seamless Data Validation for Pandas and Polars DataFrames
+# datantic: Seamless Data Validation and Conversion for Pandas and Polars DataFrames
 
-`datantic` unifies and simplifies DataFrame validation for both Pandas and Polars, combining the expressive power of Pydantic with the robust validation capabilities of Pandera. Define your DataFrame schemas with type hints and constraints, and `datantic` handles the rest, intelligently dispatching to optimized validation logic based on your DataFrame type.
+`datantic` unifies and simplifies DataFrame validation and conversion for both Pandas and Polars.  It combines the expressive power of Pydantic with the robust validation capabilities of Pandera, and adds powerful features for transforming DataFrames into nested Pydantic models.  Define your DataFrame schemas and conversion rules with type hints and constraints, and `datantic` handles the rest, intelligently dispatching to optimized logic based on your DataFrame type.
 
-## Philosophy: Declarative Validation, Effortless Integration
+## Philosophy: Declarative Validation and Conversion, Effortless Integration
 
 `datantic` is built on these core principles:
 
-*   **Declarative Schemas:** Define *what* your data should look like, not *how* to validate it. Use familiar Pydantic-style models with type hints and constraints.
-*   **Unified API:**  Validate Pandas and Polars DataFrames using the *same* schema definition and `Validator` class. No more duplicated validation logic.
-*   **Optional Dependencies:**  Pandas and Polars are *optional*. Install only what you need, keeping your environment lightweight.
-*   **Performance Matters:** Leverages Polars' speed when possible, minimizing conversions, and utilizes Pandera's optimized validation engine.
-*   **Extensible Design:**  Plugin architecture for DataFrame library-specific functionality (like accessors) makes extending `datantic` easy.
-*   **Seamless Integration:** Works harmoniously with Pydantic and Pandera, providing a consistent and intuitive experience.
-* **SQLModel Support**: Easily create `DataFrameModel`s from your existing `SQLModel` classes, bridging the gap between database and data validation.
+*   **Declarative Schemas:** Define *what* your data should look like, not *how* to validate or convert it. Use familiar Pydantic-style models.
+*   **Unified API:** Validate and convert Pandas and Polars DataFrames using the *same* schema definition and `Validator` class.
+*   **Optional Dependencies:** Pandas, Polars, and SQLModel are *optional*. Install only what you need.
+*   **Performance Matters:** Leverages Polars' speed when possible and minimizes unnecessary conversions.
+*   **Extensible Design:** Plugin architecture for DataFrame library-specific functionality.
+*   **Seamless Integration:** Works harmoniously with Pydantic, Pandera, and SQLModel.
 
 ## Key Features
 
-*   **Unified Validation:**  One schema, two DataFrame libraries. Validate Pandas and Polars DataFrames with the same `DataFrameModel`.
-*   **Automatic Dispatch:**  `datantic` intelligently detects your DataFrame type (Pandas or Polars) and uses the most efficient validation logic.
-*   **Pydantic-Powered Schemas:**  Define schemas using Pydantic models, leveraging type hints and built-in validators.
-*   **Pandera Integration:**  Utilizes Pandera for robust schema definition and validation, inheriting its powerful features.
-*   **DataFrame Accessors:**  Convenient `.datantic` accessor for both Pandas (`df.datantic.validate()`) and Polars (`pl_df.datantic.validate()`) DataFrames (requires respective library installation).
-*   **Optional Dependencies:**  Install only what you need: `datantic[pandas]`, `datantic[polars]`, `datantic[all]`, or just the core `datantic` library.
-*   **Row-Wise Validation:**  Validate individual rows against a Pydantic model.
-*   **Iterate Valid Rows:**  Efficiently iterate over only the rows that pass validation, perfect for data cleaning pipelines.
-*   **Custom Error Handling:**  Choose to raise exceptions, log errors, or provide your own error handling function.
-*   **SQLModel Compatibility:** Generate `DataFrameModel` classes directly from `SQLModel` classes, streamlining your workflow.
-*   **Lazy Validation:** Supports Pandera's lazy validation for improved performance on large DataFrames.
-*   **Type-Safe:**  Extensively type-hinted for better code clarity and maintainability.
+*   **Unified Validation:** One schema, two DataFrame libraries. Validate Pandas and Polars DataFrames with the same `DataFrameModel`.
+*   **Automatic Dispatch:** Intelligently detects your DataFrame type and uses the most efficient validation logic.
+*   **Pydantic-Powered Schemas:** Define schemas using Pydantic models, leveraging type hints and validators.
+*   **Pandera Integration:** Utilizes Pandera for robust schema definition and validation.
+*   **DataFrame Accessors:** Convenient `.datantic` accessor for Pandas and Polars DataFrames.
+*   **Optional Dependencies:** Install only what you need: `datantic[pandas]`, `datantic[polars]`, `datantic[all]`, or just the core.
+*   **Row-Wise Validation:** Validate individual rows against a Pydantic model.
+*   **Iterate Valid Rows:** Efficiently iterate over only the valid rows.
+*   **Custom Error Handling:** Raise exceptions, log errors, or provide a custom error handler.
+*   **SQLModel Compatibility:** Generate `DataFrameModel` classes from `SQLModel` classes.
+*   **Lazy Validation:** Supports Pandera's lazy validation.
+*   **Type-Safe:** Extensively type-hinted.
+*   **NEW: Nested Pydantic Conversion:** Transform DataFrames with hierarchical data into nested Pydantic models.
 
 ## Installation
 
@@ -38,17 +38,17 @@ pip install "datantic[pandas]"
 # Install with Polars support:
 pip install "datantic[polars]"
 
-# Install with both:
+# Install with both Pandas and Polars:
 pip install "datantic[pandas,polars]"
 
-# Install with all optional dependencies (includes Pandas, Polars, and SQLModel):
+# Install with all optional dependencies (Pandas, Polars, and SQLModel):
 pip install "datantic[all]"
 
 # Install base package (no DataFrame support, only Pydantic model validation):
 pip install datantic
 ```
 
-## Basic Usage
+## Basic Usage (Validation)
 
 ```python
 from datantic import DataFrameModel, Field, Validator
@@ -56,51 +56,106 @@ import pandas as pd  # Or import polars as pl
 
 # Define your DataFrame schema
 class ProductSchema(DataFrameModel):
-    product_id: int = Field(gt=0, description="Unique product identifier")
-    name: str = Field(nullable=False, description="Product name")
-    price: float = Field(ge=0, description="Product price")
-    in_stock: bool = Field(description="Whether the product is in stock")
+    product_id: int = Field(gt=0)
+    name: str = Field(nullable=False)
+    price: float = Field(ge=0)
+    in_stock: bool
 
     class Config:
-        coerce = True  # Automatically coerce data types if possible
+        coerce = True  # Automatically coerce data types
 
-# Create a Pandas DataFrame (or a Polars DataFrame)
+# Create a Pandas DataFrame (or Polars)
 data = {
-    "product_id": [1, 2, "3", 4],  # Note: "3" will be coerced to an integer
+    "product_id": [1, 2, "3", 4],
     "name": ["Laptop", "Mouse", "Keyboard", None],
     "price": [1200.0, 25.50, 75.0, 10.99],
     "in_stock": [True, True, False, True],
 }
 df = pd.DataFrame(data)
-# df = pl.DataFrame(data) # Works the same with Polars
+# df = pl.DataFrame(data)  # Works with Polars too
 
-
-# Validate the DataFrame
+# Validate (using Validator directly)
 validator = Validator(ProductSchema)
-validated_df = validator.validate(df, errors="raise")  # Raise exceptions on errors
+validated_df = validator.validate(df, errors="raise")
 print(validated_df)
 
-# Using the Pandas accessor (if Pandas is installed)
+# Validate (using Pandas accessor)
 # validated_df = df.datantic.validate(ProductSchema)
 
-# Using the Polars accessor (if polars is installed)
-# validated_df = pl_df.datantic.validate(ProductSchema)
+# Validate (using Polars accessor)
+# validated_df = df.datantic.validate(ProductSchema)  # If df is a Polars DataFrame
 
-# Check if valid without raising an exception
+# Check validity
 is_valid = validator.is_valid(df)
 print(f"DataFrame is valid: {is_valid}")
-
-# Iterate over only the valid rows.
-for index, row in validator.iterate(df):
-	print(f"Index: {index}, Row: {row}")
-
-# Example with a custom error handler:
-def my_error_handler(error):
-    print(f"Validation Error: {error}")
-
-validated_df = validator.validate(df, error_handler=my_error_handler)
-print(validated_df)
 ```
+
+## Nested Pydantic Conversion
+
+```python
+from datantic import DataFrameModel, Field, Validator
+from pydantic import BaseModel
+from typing import List
+import pandas as pd  # Or import polars as pl
+
+# Define your Pydantic models (including nested models)
+class Address(BaseModel):
+    street: str
+    city: str
+
+class User(BaseModel):
+    id: int
+    name: str
+    addresses: List[Address]
+
+# Sample DataFrame (relational data)
+data = {
+    "id": [1, 1, 2],
+    "name": ["Alice", "Alice", "Bob"],
+    "street": ["1st St", "2nd St", "3rd St"],
+    "city": ["Wonderland", "Wonderland", "Builderland"],
+}
+df = pd.DataFrame(data)
+# df = pl.DataFrame(data)  # Works with Polars too
+
+# --- Conversion without prior validation ---
+id_map = {"User": "id"}  # Map model names to ID columns
+nested_users = df.datantic.to_nested_pydantic(User, id_map)
+print(nested_users)
+
+
+# --- Conversion WITH prior validation (recommended) ---
+
+# 1. Define a DataFrameModel for validation:
+class UserSchema(DataFrameModel):
+    id: int = Field()
+    name: str = Field()
+    street: str = Field()
+    city: str = Field()
+
+# 2. Create a Validator instance:
+validator = Validator(UserSchema)
+
+# 3. Validate, then convert (two steps):
+validated_df = validator.validate(df)  # Raises exception if invalid
+nested_users = validated_df.datantic.to_nested_pydantic(User, id_map)
+
+# 4. Or, validate during conversion (using the `validate` parameter):
+try:
+    nested_users = df.datantic.to_nested_pydantic(User, id_map, validate=True)
+    # If validation fails, a pa.errors.SchemaErrors exception is raised.
+except pa.errors.SchemaErrors as e:
+  print(f"Validation failed, {e}")
+```
+
+**Explanation:**
+
+*   **`to_nested_pydantic(model, id_column_map, validate=True, **kwargs)`:**  This is the key method.
+    *   `model`:  The *root* Pydantic model class (e.g., `User`).
+    *   `id_column_map`:  A dictionary *required* for nested conversion.  It maps Pydantic model names to the corresponding ID column names in your DataFrame.  This tells `datantic` how to group rows to form the nested structure.  For example: `{"User": "id", "Address": "address_id"}` (if you had a separate `address_id` column).
+    *   `validate`:  If `True` (the default), `datantic` will validate the DataFrame against a `DataFrameModel` (if one is associated with the `Validator` used internally by the accessor) *before* performing the conversion. This is highly recommended.
+    * `**kwargs`: Pass extra arguments from pandas or polars validation methods.
+*   **Best Practice:** It's generally recommended to define a `DataFrameModel` and use the `validate=True` option. This ensures your data is valid *before* you attempt the potentially complex nested conversion.
 
 ## Advanced Usage
 
@@ -109,17 +164,14 @@ print(validated_df)
 ```python
 from datantic import DataFrameModel, Field, pandera_check
 import pandera as pa
-import pandas as pd
 
 class MySchema(DataFrameModel):
     col1: int = Field()
     col2: int = Field()
 
     @pandera_check
-    def _check_sum(cls, df: pd.DataFrame) -> pa.Check:  # or -> bool
-        return pa.Check(df["col1"] + df["col2"] > 10, name="sum_check")
-
-# Example usage same as before with Validator or accessor
+    def _check_sum(cls, df):  # Can operate on Pandas or Polars DataFrames
+        return pa.Check(df["col1"] + df["col2"] > 10)
 ```
 
 ### Pure Pydantic Model Validation (Row-Wise)
@@ -127,64 +179,32 @@ class MySchema(DataFrameModel):
 ```python
 from datantic import Validator, Field
 from pydantic import BaseModel
-import pandas as pd
 
-class User(BaseModel):  # Regular Pydantic model, *not* DataFrameModel
+class User(BaseModel):  # Regular Pydantic model
     id: int = Field(gt=0)
     name: str
     age: int = Field(ge=18)
 
-data = {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 15]}
-df = pd.DataFrame(data)
-
-validator = Validator(User)  # Pass the Pydantic model
-validated_df = validator.validate(df, errors="raise")
-print(validated_df)
-
-# Iterate over validated models
-for index, user in validator.iterate(df):
-     print(user)
-     print(type(user))
+# ... (use Validator.validate(df) or validator.iterate(df) as before)
 ```
 
 ### SQLModel Integration
 
 ```python
 from datantic import DataFrameModel
-from sqlmodel import SQLModel, Field as SQLField, Column, Integer, String
+from sqlmodel import SQLModel, Field as SQLField
 
-# Define your SQLModel
 class UserSQL(SQLModel, table=True):
     id: int = SQLField(primary_key=True)
-    name: str = SQLField()
-    age: int = SQLField(sa_column=Column(Integer, nullable=False))
+    name: str
+    # ...
 
-# Create a DataFrameModel from the SQLModel
 UserDataFrame = DataFrameModel.from_sqlmodel(UserSQL)
-
-# Now you can use UserDataFrame for validation:
-# validator = Validator(UserDataFrame)
-# ...
+# ... (use Validator(UserDataFrame) as before)
 ```
-
-### Using `datantic.Field` with Pydantic Models for Column-Level Checks
-
-```python
-from pydantic import BaseModel
-from datantic import Field, Validator
-import pandas as pd
-
-class MyModel(BaseModel):
-    value: int = Field(gt=10, lt=100) # Use datantic.Field
-
-
-df = pd.DataFrame({"value": [5, 20, 50, 110]})
-
-validator = Validator(MyModel)
-validated_df = validator.validate(df)
-print(validated_df)
-```
-### Iterating with different outputs
+### Other Features
+* Using `datantic.Field` with Pydantic Models for Column-Level Checks
+* Iterating with different outputs
 
 ```python
 
@@ -221,19 +241,9 @@ for i, model in df.datantic.iterschemas(MyBase):
 
 ## Why `datantic`?
 
-- **Simplified DataFrame Validation:**  `datantic` bridges the gap between Pydantic's data modeling and Pandera's DataFrame validation, providing a clean and intuitive API.
-- **Reduced Boilerplate:**  Avoid writing repetitive validation logic for different DataFrame libraries.
-- **Improved Code Readability:**  Declarative schemas make your data expectations explicit and easy to understand.
-- **Enhanced Data Quality:**  Catch data errors early and ensure data integrity.
-- **Faster Development:**  Spend less time on manual validation and more time building your applications.
-- **Type safety**: It makes your dataframe operations type safe.
-
-`datantic` empowers you to work with DataFrames confidently, knowing that your data is validated and consistent, regardless of whether you're using Pandas or Polars.
-
-## Contributing
-
-We welcome contributions!  Please see [CONTRIBUTING.md](CONTRIBUTING.md) (to be created) for guidelines.
-
-## License
-
-`datantic` is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+*   **Simplified DataFrame Operations:** Bridges Pydantic, Pandera, Pandas and Polars for validation and transformation.
+*   **Reduced Boilerplate:** Avoid repetitive validation and conversion logic.
+*   **Improved Code Readability:** Declarative schemas make your data expectations clear.
+*   **Enhanced Data Quality:** Catch data errors early.
+*   **Faster Development:** Spend less time on manual validation and conversion.
+*   **Type Safety:**  DataFrame operations become type-safe.

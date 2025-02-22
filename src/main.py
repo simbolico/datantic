@@ -1,12 +1,10 @@
-import os
-print(f"Current working directory: {os.getcwd()}")
-
 # main.py
 import logging
 import pandas as pd
 from pydantic import BaseModel, ValidationError
 import pandera as pa
 from pandera import Check
+from typing import List
 
 from datantic import (
     DataFrameModel,
@@ -162,7 +160,7 @@ def example5_error_handling():
     def error_handler(e):
         errors.append(e)
         print(f"Logged error: {e}")
-    
+
     validator = Validator(SimpleSchema, error_handler=error_handler)
     validated_df = validator.validate(df, errors="log")
     print(f"Logged {len(errors)} validation failures")
@@ -211,6 +209,78 @@ def example6_accessor_methods():
     except ImportError:
         print("⚠️ Polars not installed, skipping Polars example")
 
+def example7_nested_pydantic():
+    """Nested Pydantic conversion example."""
+    print("\n=== Example 7: Nested Pydantic Conversion ===")
+
+    class Address(BaseModel):
+        street: str
+        city: str
+
+    class User(BaseModel):
+        id: int
+        name: str
+        addresses: List[Address]
+
+    # Sample data (relational)
+    data = {
+        "id": [1, 1, 2],
+        "name": ["Alice", "Alice", "Bob"],
+        "street": ["1st St", "2nd St", "3rd St"],
+        "city": ["Wonderland", "Wonderland", "Builderland"],
+    }
+
+    # Pandas example
+    pandas_df = pd.DataFrame(data)
+    print("Pandas DataFrame:")
+    print(pandas_df)
+    id_map = {"User": "id"}
+    nested_users_pandas = pandas_df.datantic.to_nested_pydantic(User, id_map)
+    print("\nNested Pydantic (Pandas):")
+    print(nested_users_pandas)
+
+
+    # Polars example (if Polars is installed)
+    try:
+        import polars as pl
+        polars_df = pl.DataFrame(data)
+        print("\nPolars DataFrame:")
+        print(polars_df)
+
+        nested_users_polars = polars_df.datantic.to_nested_pydantic(User, id_map)
+        print("\nNested Pydantic (Polars):")
+        print(nested_users_polars)
+    except ImportError:
+        print("\n⚠️ Polars not installed, skipping Polars example")
+
+
+    # Example with validation
+    class UserSchema(DataFrameModel):
+        id: int = DataFrameField()
+        name: str = DataFrameField()
+        street: str = DataFrameField()
+        city: str = DataFrameField()
+
+    print("\nWith DataFrameModel Validation:")
+    validator = Validator(UserSchema) # Create validator instance
+
+    try:
+        # Validate *before* conversion
+        validated_df = validator.validate(pandas_df)  # or polars_df
+        nested_users_validated = validated_df.datantic.to_nested_pydantic(User, id_map)
+        print(nested_users_validated)
+    except pa.errors.SchemaErrors as e:
+        print(f"❌ Validation failed before conversion: {e}")
+
+    # Or, equivalently, using validate=True in to_nested_pydantic
+    print("\nWith to_nested_pydantic validation (Pandas):")
+    try:
+        nested_users = pandas_df.datantic.to_nested_pydantic(User, id_map, validate=True)
+        print(nested_users)
+    except pa.errors.SchemaErrors as e:
+        print(f"❌ Validation failed during conversion: {e}")
+
+
 if __name__ == "__main__":
     example1_basic_dataframemodel()
     example2_rowwise_pydantic()
@@ -218,3 +288,4 @@ if __name__ == "__main__":
     example4_custom_checks()
     example5_error_handling()
     example6_accessor_methods()
+    example7_nested_pydantic() # New example function call

@@ -16,6 +16,7 @@ from .utils import create_checks
 from .validators.pandas import PandasDataFrameValidator # Import from validators submodule
 from .validators.polars import PolarsDataFrameValidator # Import from validators submodule
 from .converters import to_pandas, to_polars
+from .nesting import get_model_columns, serialize_dataframe
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,11 @@ class Validator:
         if not isinstance(schema, (type, pa.DataFrameSchema)): # Runtime type check for schema
             raise TypeError(
                 "Schema must be a Pydantic BaseModel class, Pandera DataFrameSchema, or DataFrameModel class."
+            )
+
+        if isinstance(schema, type) and not issubclass(schema, (BaseModel, DataFrameModel)):
+            raise TypeError(
+                "The `schema` argument must be a Pydantic BaseModel class, DataFrameModel class, or Pandera DataFrameSchema."
             )
 
         if isinstance(schema, type) and issubclass(schema, DataFrameModel):
@@ -118,66 +124,54 @@ class Validator:
         errors: Literal["raise", "log"] = "raise",
         error_handler: Optional[ErrorHandler] = None,
     ) -> Any:  # type: ignore #Return Any
-        """Validates input data against the defined schema."""
-
-        self._dataframe = data  # Store input DataFrame
-
-        if _PANDAS_INSTALLED and isinstance(data, pd.DataFrame):
-            # Pandas DataFrame input
-            if self.pandera_schema:
-                if self._polars_schema: # Pandas DF, but Polars schema -> Convert and validate with Polars
-                    if not _POLARS_INSTALLED:
-                        raise RuntimeError("Polars is required for validating with Polars Schemas.")
-                    polars_df = to_polars(data) # Use converter
-                    return self._validate_polars_dataframe_internal( # Call internal polars validation
-                        polars_df, head, tail, sample, random_state, lazy, inplace, errors, error_handler
-                    )
-                else: # Pandas DF and Pandas schema -> Use Pandas validator
-                    return self._validate_pandas_dataframe_internal( # Call internal pandas validation
-                        data, head, tail, sample, random_state, lazy, inplace, errors, error_handler
-                    )
-            elif self.pydantic_model: # Pydantic Model validation on Pandas DF
-                return self._validate_dataframe_with_pydantic(
-                    data, errors, error_handler
-                )
-        elif is_polars_dataframe(data):
-            # Polars DataFrame input
-            if self.pandera_schema:
-                if not self._polars_schema: # Polars DF, but Pandas schema -> Convert and validate with Pandas
-                    if not _PANDAS_INSTALLED:
-                        raise RuntimeError("Pandas is required for validating Polars DataFrames with Pandas Schemas.")
-                    pandas_df = to_pandas(data) # Use converter
-                    return self._validate_pandas_dataframe_internal( # Call internal pandas validation
-                        pandas_df, head, tail, sample, random_state, lazy, inplace, errors, error_handler
-                    )
-                else: # Polars DF and Polars schema -> Use Polars validator
-                    return self._validate_polars_dataframe_internal( # Call internal polars validation
-                        data, head, tail, sample, random_state, lazy, inplace, errors, error_handler
-                    )
-            elif self.pydantic_model: # Pydantic Model validation on Polars DF (convert to Pandas first)
-                if not _PANDAS_INSTALLED:
-                    raise RuntimeError("Pandas is required for Pydantic validation on Polars DataFrames.")
-                pandas_df = to_pandas(data) # Use converter
-                return self._validate_dataframe_with_pydantic(
-                    pandas_df, errors, error_handler
-                )
-        else:
-            raise TypeError(
-                "Input data must be a pandas DataFrame or a polars DataFrame."
+        """Validates data against the schema."""
+        # Handle different DataFrame types
+        if is_polars_dataframe(data):
+            return self._validate_polars_dataframe_internal(
+                data,
+                head=head,
+                tail=tail,
+                sample=sample,
+                random_state=random_state,
+                lazy=lazy,
+                inplace=inplace,
+                errors=errors,
+                error_handler=error_handler,
             )
+        elif isinstance(data, pd.DataFrame):
+            return self._validate_pandas_dataframe_internal(
+                data,
+                head=head,
+                tail=tail,
+                sample=sample,
+                random_state=random_state,
+                lazy=lazy,
+                inplace=inplace,
+                errors=errors,
+                error_handler=error_handler,
+            )
+        else:
+            raise TypeError("Data must be a Pandas or Polars DataFrame")
 
     def _validate_pandas_dataframe_internal(self, data: pd.DataFrame, *args, **kwargs) -> Any:
-        """Internal method to validate using Pandas validator."""
-        if self._pandas_validator is None:
-            raise ValueError("Pandas validator not initialized.")
-        return self._pandas_validator.validate_dataframe(data, *args, **kwargs)
+        """Internal method to validate Pandas DataFrame."""
+        if self.pydantic_model is not None and self.pandera_schema is None:
+            return self._validate_dataframe_with_pydantic(data, kwargs.get("errors", "raise"), kwargs.get("error_handler"))
+        else:
+            # Remove datantic-specific kwargs that pandera doesn't understand
+            pandera_kwargs = {k: v for k, v in kwargs.items() if k not in ["errors", "error_handler"]}
+            return self.pandera_schema.validate(data, *args, **pandera_kwargs)
 
-    def _validate_polars_dataframe_internal(self, data: pl.DataFrame, *args, **kwargs) -> Any:
-        """Internal method to validate using Polars validator."""
-        if self._polars_validator is None:
-            raise ValueError("Polars validator not initialized.")
-        return self._polars_validator.validate_dataframe(data, *args, **kwargs)
-
+    def _validate_polars_dataframe_internal(self, data: Any, *args, **kwargs) -> Any:
+        """Internal method to validate Polars DataFrame."""
+        import polars as pl
+        # Convert to pandas for validation
+        pandas_df = to_pandas(data)
+        result = self._validate_pandas_dataframe_internal(pandas_df, *args, **kwargs)
+        # Convert back to polars
+        if isinstance(result, pd.DataFrame):
+            return pl.from_pandas(result)
+        return result
 
     def _validate_dataframe_with_pydantic(
         self, data: pd.DataFrame, errors: Literal["raise", "log"], error_handler: Optional[ErrorHandler] = None
@@ -186,54 +180,43 @@ class Validator:
         if not _PANDAS_INSTALLED:
             raise RuntimeError("Pandas is required for row-wise Pydantic validation.")
 
-        # ... (Pydantic validation logic - mostly unchanged, but ensure Pandas iteration) ...
-        if (
-            self.pydantic_model is not None and self.pandera_schema is None
-        ):  # It's a pure Pydantic BaseModel
-            # Validate with Pandera schema from datantic.Fields FIRST:
-            if self._pandera_schema_from_pydantic:
-                try:
-                    data = self._pandera_schema_from_pydantic.validate(data)
-                except pa.errors.SchemaErrors as e:
-                    if error_handler:
-                        error_handler(e)  # Call error handler
-                    elif errors == "raise":
-                        raise e
-                    elif errors == "log":
-                        logger.error(e)
-
-            # Log warning for large DataFrames:
-            if len(data) > 10000:
-                warnings.warn(
-                    "Row-wise Pydantic validation on a large DataFrame may be slow. "
-                    "Consider using a DataFrameModel or DataFrameSchema for better performance.",
-                    UserWarning,
-                )
-
-            # Row-wise Pydantic validation:
-            validated_data: List[Dict[str, Any]] = []
+        try:
+            validated_data = []
+            validation_errors = []
             for _, row in data.iterrows():
                 try:
+                    # Validate the row
                     validated_model = self.pydantic_model.model_validate(row.to_dict())
                     validated_data.append(validated_model.model_dump())
                 except ValidationError as e:
-                    if error_handler:
-                        error_handler(e)  # Call error handler
-                    elif errors == "raise":
-                        raise e
-                    elif errors == "log":
-                        logger.error(e)
-                        validated_data.append(
-                            row.to_dict()
-                        )  # keep original values if logging errors
-                    else:
-                        raise ValueError(f"Unknown error handling mode: {errors}")
-            return pd.DataFrame(validated_data)
-        else:
-            raise RuntimeError(
-                "Cannot validate with pydantic if pandera_schema is available."
-            )
+                    validation_errors.extend(e.errors())
+                    if errors == "log":
+                        if error_handler:
+                            error_handler(e)
+                        else:
+                            logger.error(str(e))
+                    continue
 
+            if validation_errors and errors == "raise":
+                raise ValidationError.from_exception_data(
+                    title="",
+                    line_errors=validation_errors
+                )
+
+            if not validated_data:
+                return pd.DataFrame()
+
+            return pd.DataFrame(validated_data)
+
+        except Exception as e:
+            if errors == "raise":
+                raise e
+            elif errors == "log":
+                if error_handler:
+                    error_handler(e)
+                else:
+                    logger.error(str(e))
+            return pd.DataFrame()
 
     def is_valid(
         self,
